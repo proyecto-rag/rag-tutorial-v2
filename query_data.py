@@ -21,6 +21,14 @@ AVAILABLE_MODELS = {
     "large": {
         "name": "google/flan-t5-large",
         "max_tokens": 1024,
+    },
+    "xl": {
+        "name": "google/flan-t5-xl",
+        "max_tokens": 2048,
+    },
+    "xxl": {
+        "name": "google/flan-t5-xxl",
+        "max_tokens": 2048,
     }
 }
 
@@ -39,8 +47,8 @@ def main():
     # Create CLI.
     parser = argparse.ArgumentParser()
     parser.add_argument("query_text", type=str, help="The query text.")
-    parser.add_argument("--model", type=str, choices=["small", "base", "large"], 
-                        default="small", help="Modelo a utilizar (small, base, large).")
+    parser.add_argument("--model", type=str, choices=["small", "base", "large", "xl", "xxl"], 
+                        default="small", help="Modelo a utilizar (small, base, large, xl, xxl).")
     parser.add_argument("--docs", type=int, default=2, 
                         help="Número de documentos a utilizar como contexto (1-5).")
     args = parser.parse_args()
@@ -129,6 +137,7 @@ def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
     
     print("Generando respuesta...")
     response_text = llm.invoke(prompt)
+
 
     sources = [doc.metadata.get('id', 'Unknown') for doc, _score in results]
     formatted_response = f"\nRespuesta: {response_text}\n\nFuentes consultadas: {sources}"
