@@ -3,6 +3,8 @@ from langchain_chroma import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFacePipeline
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+import requests
+import json
 
 from get_embedding_function import get_embedding_function
 
@@ -124,25 +126,51 @@ def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
     print(prompt)
     print("="*109 + "\n")
     
-    # Crear el pipeline
-    hf_pipeline = pipeline(
-        "text2text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        max_length=max_tokens
-    )
+    # Hacer la llamada a la API externa en lugar de usar el modelo local
+    print("Generando respuesta desde API externa...")
+    response_text = call_external_api(prompt)
     
-    # Crear el LLM de LangChain
-    llm = HuggingFacePipeline(pipeline=hf_pipeline)
-    
-    print("Generando respuesta...")
-    response_text = llm.invoke(prompt)
-
-
     sources = [doc.metadata.get('id', 'Unknown') for doc, _score in results]
-    formatted_response = f"\nRespuesta: {response_text}\n\nFuentes consultadas: {sources}"
+    formatted_response = f"\nRespuesta: {response_text['response']}\n\nFuentes consultadas: {sources}\nTokens de entrada: {response_text['inputTokens']}\nTokens de salida: {response_text['outputTokens']}\nCosto: {response_text['cost']}"
     print(formatted_response)
-    return response_text
+    return response_text['response']
+
+def call_external_api(prompt):
+    # Definir la URL de la API
+    url = "https://labs-ai-proxy.acloud.guru/rest/openai/chatgpt-35/v1/chat/completions"
+    
+    # API Key que el usuario puede cambiar
+    API_KEY = "44a33da0-84b3-4e21-848e-93fc1b9bdeb7"
+    
+    # Configurar headers
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # Preparar el payload
+    payload = {
+        "prompt": prompt
+    }
+    
+    # Hacer la solicitud POST
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()  # Lanzar excepción si hay error HTTP
+        
+        # Procesar la respuesta
+        response_data = response.json()
+        return response_data
+    
+    except requests.exceptions.RequestException as e:
+        print(f"Error al hacer la solicitud a la API: {e}")
+        # Devolver un diccionario con valores predeterminados en caso de error
+        return {
+            "response": f"Error en la solicitud a la API: {str(e)}",
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cost": 0
+        }
 
 
 if __name__ == "__main__":
