@@ -1,7 +1,8 @@
 import argparse
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain.prompts import ChatPromptTemplate
-from langchain_community.llms.ollama import Ollama
+from langchain_huggingface import HuggingFacePipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 
 from get_embedding_function import get_embedding_function
 
@@ -29,11 +30,19 @@ def main():
 
 def query_rag(query_text: str):
     # Prepare the DB.
+    print(f"\nConsultando: '{query_text}'")
+    print("Cargando embedding function y base de datos...")
     embedding_function = get_embedding_function()
     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
     # Search the DB.
+    print("Buscando documentos similares...")
     results = db.similarity_search_with_score(query_text, k=5)
+    
+    print(f"\nSe encontraron {len(results)} documentos relevantes:")
+    for i, (doc, score) in enumerate(results):
+        print(f"\n[{i+1}] Documento: {doc.metadata.get('id', 'Unknown')} (Similaridad: {1-score:.4f})")
+        print(f"    {doc.page_content[:150]}...")
 
     context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -42,11 +51,28 @@ def query_rag(query_text: str):
     print(prompt)
     print("="*109 + "\n")
 
-    model = Ollama(model="mistral")
-    response_text = model.invoke(prompt)
+    # Inicializar el modelo directamente
+    print("Cargando modelo de lenguaje...")
+    model_name = "google/flan-t5-small"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    
+    # Crear el pipeline
+    hf_pipeline = pipeline(
+        "text2text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_length=512
+    )
+    
+    # Crear el LLM de LangChain
+    llm = HuggingFacePipeline(pipeline=hf_pipeline)
+    
+    print("Generando respuesta...")
+    response_text = llm.invoke(prompt)
 
-    sources = [doc.metadata.get("id", None) for doc, _score in results]
-    formatted_response = f"Response: {response_text}\nSources: {sources}"
+    sources = [doc.metadata.get('id', 'Unknown') for doc, _score in results]
+    formatted_response = f"\nRespuesta: {response_text}\n\nFuentes consultadas: {sources}"
     print(formatted_response)
     return response_text
 
