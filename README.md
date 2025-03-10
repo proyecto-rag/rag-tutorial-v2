@@ -87,3 +87,8 @@ python query_data.py "tu pregunta aquí"
 - El sistema utiliza embeddings de HuggingFace ("all-MiniLM-L6-v2")
 - Para la generación de respuestas se usa modelos T5 de Google (flan-t5-small/base/large)
 - Los modelos se ejecutan localmente, no requieren conexión a internet después de la descarga inicial
+
+## EJEMPLO COMÚN
+- ```source venv/bin/activate``` para arrancar el ambiente
+- ```python3 populate_database.py``` para volver a llenar la base de datos si se agrego un nuevo PDF
+- ```python3 query_data.py "PREGUNTA" --model xl --docs 5``` para usar el segundo mejor modelo
