@@ -1,15 +1,52 @@
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.embeddings.bedrock import BedrockEmbeddings
 import sys
 
+MODEL_CONFIG = {
+    #BUENO Y LIGERO
+    "default": {
+        "name": "all-MiniLM-L12-v2",
+        "kwargs": {}
+    },
+    #ESPECIALIZADO PARA ESPAÑOL
+    "spanish": {
+        "name": "hiiamsid/sentence_similarity_spanish_es",
+        "kwargs": {"encode_kwargs": {"normalize_embeddings": True}}
+    },
+    #MUCHOS IDIOMAS Y EL MÁS POTENTE
+    "multilingual": {
+        "name": "BAAI/bge-m3",
+        "kwargs": {
+            "model_kwargs": {"device": "cpu"},
+            "encode_kwargs": {
+                "normalize_embeddings": True,
+                "batch_size": 16
+            }
+        }
+    },
+}
 
-def get_embedding_function():
+def get_embedding_function(model_name="default"):
     try:
-        print("Usando modelo de embeddings: all-MiniLM-L12-v2 (HuggingFace)")
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L12-v2")
-        return embeddings
+        # Obtener configuración del modelo
+        config = MODEL_CONFIG.get(model_name)
+        
+        if not config:
+            # Si no está en la lista predefinida, usar el nombre directamente
+            print(f"Usando modelo personalizado: {model_name}")
+            return HuggingFaceEmbeddings(model_name=model_name)
+        
+        print(f"Usando modelo: {config['name']} - Tipo: {model_name.upper()}")
+        
+        # Cargar modelo con configuración específica
+        return HuggingFaceEmbeddings(
+            model_name=config["name"],
+            **config["kwargs"]
+        )
+        
     except Exception as e:
-        print(f"\nError al cargar el modelo de embeddings: {str(e)}")
-        print("\nAsegúrate de tener todas las dependencias instaladas correctamente.")
-        print("Si sigues teniendo problemas, considera usar un modelo de embeddings alternativo.")
+        print(f"\n❌ Error al cargar el modelo {model_name}: {str(e)}")
+        print("\nPosibles soluciones:")
+        print("- Ejecuta: pip install sentence-transformers")
+        print("- Verifica el nombre del modelo en HuggingFace")
+        print(f"- Modelos disponibles: {', '.join(MODEL_CONFIG.keys())}")
         sys.exit(1)
