@@ -53,18 +53,42 @@ def main():
                         default="small", help="Modelo a utilizar (small, base, large, xl, xxl).")
     parser.add_argument("--docs", type=int, default=2, 
                         help="Número de documentos a utilizar como contexto (1-5).")
+    parser.add_argument("--use-local", action="store_true",
+                        help="Usar modelo local FLAN-T5 en lugar de API externa.")
     args = parser.parse_args()
-    query_text = args.query_text
-    model_size = args.model
-    num_docs = min(max(1, args.docs), 5)  # Asegurar entre 1 y 5
     
-    query_rag(query_text, model_size, num_docs)
+    query_rag(args.query_text, args.model, args.docs, args.use_local)
 
 
-def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
+def generate_local_response(prompt: str, model, tokenizer):
+    """Genera una respuesta usando el modelo local FLAN-T5."""
+    pipe = pipeline(
+        "text2text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_length=512,
+        do_sample=True,
+        temperature=0.7,
+        top_p=0.9
+    )
+    
+    response = pipe(prompt)[0]["generated_text"]
+    
+    # Calculamos tokens para mantener consistencia con la API externa
+    input_tokens = len(tokenizer.encode(prompt))
+    output_tokens = len(tokenizer.encode(response))
+    
+    return {
+        "response": response,
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "cost": 0  # Los modelos locales no tienen costo por uso
+    }
+
+def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2, use_local: bool = False):
     # Prepare the DB.
     print(f"\nConsultando: '{query_text}'")
-    print("Cargando embedding function y base de datos...")
+    print("Cargando embedding function y base de datos en caso de no usar el default all-MiniLM-L12-v2 se debe especificar el modelo de embedding en la lína 92...")
     embedding_function = get_embedding_function()
     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
@@ -126,9 +150,12 @@ def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
     print(prompt)
     print("="*109 + "\n")
     
-    # Hacer la llamada a la API externa en lugar de usar el modelo local
-    print("Generando respuesta desde API externa...")
-    response_text = call_external_api(prompt)
+    if use_local:
+        print("\nUsando modelo local FLAN-T5...")
+        response_text = generate_local_response(prompt, model, tokenizer)
+    else:
+        print("\nGenerando respuesta desde API externa...")
+        response_text = call_external_api(prompt)
     
     sources = [doc.metadata.get('id', 'Unknown') for doc, _score in results]
     formatted_response = f"\nRespuesta: {response_text['response']}\n\nFuentes consultadas: {sources}\nTokens de entrada: {response_text['inputTokens']}\nTokens de salida: {response_text['outputTokens']}\nCosto: {response_text['cost']}"
