@@ -3,7 +3,7 @@ import sys
 
 MODEL_CONFIG = {
     # BUENO Y LIGERO
-    "default": {
+    "minil12": {
         "name": "all-MiniLM-L12-v2",
         "kwargs": {}
     },
@@ -29,7 +29,7 @@ MODEL_CONFIG = {
 }
 
 
-def get_embedding_function(model_name="default"):
+def get_embedding_function(model_name="multilingual"):
     try:
         # Obtener configuración del modelo
         config = MODEL_CONFIG.get(model_name)
