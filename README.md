@@ -1,94 +1,98 @@
-# Sistema RAG con Hugging Face
+# RAG (Retrieval-Augmented Generation) System
 
-Este proyecto implementa un sistema de Generación Aumentada por Recuperación (RAG) utilizando modelos de Hugging Face para el procesamiento de documentos PDF.
+Este proyecto implementa un sistema RAG que permite consultar documentos PDF utilizando diferentes modelos de embedding y lenguaje.
+
+## Características
+
+- Procesamiento de documentos PDF
+- Múltiples opciones de modelos de embedding:
+  - all-MiniLM-L12-v2 (ligero y eficiente)
+  - BAAI/bge-m3 (multilingüe y potente)
+  - hkunlp/instructor-large (con capacidad de instrucciones)
+- Soporte para diferentes modelos de lenguaje:
+  - Modelos FLAN-T5 locales (small, base, large, xl)
+  - API externa para generación de respuestas
+- Sistema de chunking inteligente con superposición
+- Base de datos vectorial con Chroma
 
 ## Requisitos
 
-- Python 3.9+
-- Entorno virtual (recomendado)
-
-## Configuración
-
-1. Clona este repositorio:
 ```bash
-git clone <url-del-repositorio>
-cd rag-tutorial-v2
+pip install langchain-community langchain-huggingface chromadb sentence-transformers transformers torch requests
 ```
 
-2. Crea y activa un entorno virtual:
-```bash
-# En macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
+## Estructura del Proyecto
 
-# En Windows
-python -m venv venv
-venv\Scripts\activate
-```
-
-3. Instala las dependencias:
-```bash
-pip install -r requirements.txt
-```
+- `populate_database.py`: Procesa los documentos PDF y los almacena en la base de datos
+- `query_data.py`: Maneja las consultas y genera respuestas
+- `get_embedding_function.py`: Gestiona los diferentes modelos de embedding
 
 ## Uso
 
-### 1. Poblar la base de datos
+### 1. Preparar los Documentos
 
-Primero, se debe cargar los documentos PDF en la base de datos vectorial:
+Coloca tus archivos PDF en el directorio `data/`.
+
+### 2. Poblar la Base de Datos
 
 ```bash
+# Crear nueva base de datos multilingual por default
+python populate_database.py --reset
+
+# Actualizar base de datos existente
 python populate_database.py
 ```
 
-Para reiniciar la base de datos:
+### 3. Realizar Consultas
 
 ```bash
-python populate_database.py --reset
+# Consulta básica
+python query_data.py "Tu pregunta aquí"
+
+# Opciones adicionales
+python query_data.py "Tu pregunta" \
+    --model xl \           # Modelo a utilizar (small, base, large, xl)
+    --docs 3 \            # Número de documentos para contexto (1-5)
+    --use-local \         # Usar modelo local en lugar de API
+    --max-tokens 2048     # Límite de tokens para la respuesta (solo aplica API)
 ```
 
-### 2. Consultar documentos
+## Configuración de Modelos
 
-Para hacer consultas al sistema RAG:
+### Modelos de Embedding Disponibles
 
-```bash
-python query_data.py "tu pregunta aquí"
-```
+1. **minil12** (all-MiniLM-L12-v2)
+   - Ligero y eficiente
+   - Buen balance entre rendimiento y recursos
 
-#### Opciones adicionales:
+2. **multilingual** (BAAI/bge-m3)
+   - Soporte multilingüe
+   - Mayor potencia y precisión
+   - Configurado para CPU por defecto
 
-- **Seleccionar tamaño del modelo**:
-  ```bash
-  python query_data.py "tu pregunta aquí" --model base
-  ```
-  Opciones disponibles: `small` (predeterminado), `base`, `large`
+3. **instruction** (hkunlp/instructor-large)
+   - Permite instrucciones personalizadas
+   - Mayor consumo de recursos
+   - Optimizado para documentos en español
 
-- **Definir número de documentos de contexto**:
-  ```bash
-  python query_data.py "tu pregunta aquí" --docs 3
-  ```
-  Valores aceptados: 1-5 (predeterminado: 2)
+### Modelos de Lenguaje
 
-- **Combinación de opciones**:
-  ```bash
-  python query_data.py "tu pregunta aquí" --model large --docs 4
-  ```
+- **Locales** (FLAN-T5):
+  - small: 512 tokens máx.
+  - base: 768 tokens máx.
+  - large: 1024 tokens máx.
+  - xl: 2048 tokens máx.
 
-## Estructura del proyecto
+- **API Externa**:
+  - Límite configurable de tokens
+  - Requiere API key válida
 
-- `populate_database.py`: Script para cargar y procesar documentos PDF
-- `query_data.py`: Script para consultar el sistema RAG
-- `get_embedding_function.py`: Funciones para generar embeddings
-- `chroma/`: Directorio donde se almacena la base de datos vectorial
-- `data/`: Directorio donde se deben colocar los archivos PDF
+## Notas Importantes
 
-## Notas técnicas
-
-- El sistema utiliza embeddings de HuggingFace ("all-MiniLM-L6-v2")
-- Para la generación de respuestas se usa modelos T5 de Google (flan-t5-small/base/large)
-- Los modelos se ejecutan localmente, no requieren conexión a internet después de la descarga inicial
-
-## EJEMPLO COMÚN
-- ```source venv/bin/activate``` para arrancar el ambiente
-- ```python3 populate_database.py``` para volver a llenar la base de datos si se agrego un nuevo PDF
-- ```python3 query_data.py "PREGUNTA" --model xl --docs 5``` para usar el segundo mejor modelo
+- El sistema ajusta automáticamente el contexto si se excede el límite de tokens
+- Los documentos se dividen en chunks de 800 caracteres con 80 caracteres de superposición
+- La base de datos se puede resetear o actualizar según necesidad
+- Se recomienda usar el modelo de embedding según el caso de uso:
+  - minil12: para casos generales y recursos limitados
+  - multilingual: para documentos multilingües
+  - instruction: para casos que requieren instrucciones específicas

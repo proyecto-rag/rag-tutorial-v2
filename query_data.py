@@ -28,10 +28,6 @@ AVAILABLE_MODELS = {
         "name": "google/flan-t5-xl",
         "max_tokens": 2048,
     },
-    "xxl": {
-        "name": "google/flan-t5-xxl",
-        "max_tokens": 2048,
-    }
 }
 
 PROMPT_TEMPLATE = """
@@ -50,21 +46,48 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("query_text", type=str, help="The query text.")
     parser.add_argument("--model", type=str, choices=["small", "base", "large", "xl", "xxl"], 
-                        default="small", help="Modelo a utilizar (small, base, large, xl, xxl).")
-    parser.add_argument("--docs", type=int, default=2, 
+                        default="xl", help="Modelo a utilizar (small, base, large, xl, xxl).")
+    parser.add_argument("--max-tokens", type=int, default=2048,
+                        help="Número máximo de tokens a utilizar (solo aplica cuando se usa la API externa).")
+    parser.add_argument("--docs", type=int, default=3, 
                         help="Número de documentos a utilizar como contexto (1-5).")
+    parser.add_argument("--use-local", action="store_true",
+                        help="Usar modelo local FLAN-T5 en lugar de API externa.")
     args = parser.parse_args()
-    query_text = args.query_text
-    model_size = args.model
-    num_docs = min(max(1, args.docs), 5)  # Asegurar entre 1 y 5
     
-    query_rag(query_text, model_size, num_docs)
+    query_rag(args.query_text, args.model, args.docs, args.use_local, args.max_tokens)
 
 
-def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
+def generate_local_response(prompt: str, model, tokenizer):
+    """Genera una respuesta usando el modelo local FLAN-T5."""
+    pipe = pipeline(
+        "text2text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_length=512,
+        do_sample=True,
+        temperature=0.7,
+        top_p=0.9
+    )
+    
+    response = pipe(prompt)[0]["generated_text"]
+    
+    # Calculamos tokens para mantener consistencia con la API externa
+    input_tokens = len(tokenizer.encode(prompt))
+    output_tokens = len(tokenizer.encode(response))
+    
+    return {
+        "response": response,
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "cost": 0  # Los modelos locales no tienen costo por uso
+    }
+
+def query_rag(query_text: str, model_size: str = "large", num_docs: int = 2, 
+              use_local: bool = False, max_tokens: int = 2048):
     # Prepare the DB.
     print(f"\nConsultando: '{query_text}'")
-    print("Cargando embedding function y base de datos...")
+    print("Cargando embedding function y base de datos en caso de no usar el default all-MiniLM-L12-v2 se debe especificar el modelo de embedding en la lína 92...")
     embedding_function = get_embedding_function()
     db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
@@ -81,14 +104,23 @@ def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
     # Obtener información del modelo seleccionado
     model_info = AVAILABLE_MODELS[model_size]
     model_name = model_info["name"]
-    max_tokens = model_info["max_tokens"]
     
-    print(f"\nUsando modelo: {model_name} (máx. {max_tokens} tokens)")
+    # Obtener el límite de tokens según si es local o API
+    if use_local:
+        token_limit = model_info["max_tokens"]
+    else:
+        token_limit = max_tokens
+    
+    print(f"\nUsando modelo: {model_name}")
+    if use_local:
+        print(f"Límite de tokens del modelo local: {token_limit}")
+    else:
+        print(f"Límite de tokens configurado para API: {token_limit}")
     
     # Inicializar el modelo y tokenizer antes para poder verificar el tamaño
     print("Cargando modelo de lenguaje...")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name) if use_local else None
     
     # Asegurarnos de que el contexto no es demasiado largo
     context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
@@ -97,13 +129,12 @@ def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
     template_tokens = len(tokenizer.encode(PROMPT_TEMPLATE.replace("{context}", "").replace("{question}", "")))
     total_tokens = context_tokens + question_tokens + template_tokens
     
-    print(f"\nEstimación de tokens: {total_tokens} (máximo permitido: {max_tokens})")
+    print(f"\nEstimación de tokens: {total_tokens} (máximo permitido: {token_limit})")
     print(f"- Contexto: {context_tokens} tokens")
     print(f"- Pregunta: {question_tokens} tokens")
     print(f"- Plantilla: {template_tokens} tokens")
     
-    # Dejamos un margen de seguridad del 3%
-    if total_tokens > max_tokens * 0.97:
+    if total_tokens > token_limit * 0.97:
         print("\n⚠️ El contexto es demasiado grande, truncando...")
         # Estrategia simple: usar menos documentos
         max_docs = max(1, num_docs - 1)
@@ -113,7 +144,7 @@ def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
         print(f"Nuevos tokens totales después de truncar: {total_tokens}")
         
         # Si aún es demasiado grande, truncamos aún más
-        if total_tokens > max_tokens * 0.97 and max_docs > 1:
+        if total_tokens > token_limit * 0.97 and max_docs > 1:
             max_docs = 1
             context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results[:max_docs]])
             context_tokens = len(tokenizer.encode(context_text))
@@ -126,16 +157,19 @@ def query_rag(query_text: str, model_size: str = "small", num_docs: int = 2):
     print(prompt)
     print("="*109 + "\n")
     
-    # Hacer la llamada a la API externa en lugar de usar el modelo local
-    print("Generando respuesta desde API externa...")
-    response_text = call_external_api(prompt)
+    if use_local:
+        print("\nUsando modelo local FLAN-T5...")
+        response_text = generate_local_response(prompt, model, tokenizer)
+    else:
+        print("\nGenerando respuesta desde API externa...")
+        response_text = call_external_api(prompt, token_limit)
     
     sources = [doc.metadata.get('id', 'Unknown') for doc, _score in results]
     formatted_response = f"\nRespuesta: {response_text['response']}\n\nFuentes consultadas: {sources}\nTokens de entrada: {response_text['inputTokens']}\nTokens de salida: {response_text['outputTokens']}\nCosto: {response_text['cost']}"
     print(formatted_response)
     return response_text['response']
 
-def call_external_api(prompt):
+def call_external_api(prompt, max_tokens):
     # Definir la URL de la API
     url = "https://labs-ai-proxy.acloud.guru/rest/openai/chatgpt-35/v1/chat/completions"
     
@@ -150,7 +184,8 @@ def call_external_api(prompt):
     
     # Preparar el payload
     payload = {
-        "prompt": prompt
+        "prompt": prompt,
+        "max_tokens": max_tokens
     }
     
     # Hacer la solicitud POST
