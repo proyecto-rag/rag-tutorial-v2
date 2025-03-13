@@ -5,7 +5,8 @@ from langchain_huggingface import HuggingFacePipeline
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
 import requests
 import json
-
+import chromadb
+from chromadb.config import Settings
 from get_embedding_function import get_embedding_function
 
 CHROMA_PATH = "chroma"
@@ -89,87 +90,96 @@ def query_rag(query_text: str, model_size: str = "large", num_docs: int = 2,
     print(f"\nConsultando: '{query_text}'")
     print("Cargando embedding function y base de datos en caso de no usar el default all-MiniLM-L12-v2 se debe especificar el modelo de embedding en la lína 92...")
     embedding_function = get_embedding_function()
-    db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
 
-    # Search the DB.
-    print("Buscando documentos similares...")
-    # Usar el número de documentos especificado
-    results = db.similarity_search_with_score(query_text, k=num_docs)
+    # Modificar la conexión para usar el cliente HTTP de ChromaDB
+    chroma_client = chromadb.HttpClient(
+        host="localhost",
+        port=8000
+    )
     
-    print(f"\nSe encontraron {len(results)} documentos relevantes:")
-    for i, (doc, score) in enumerate(results):
-        print(f"\n[{i+1}] Documento: {doc.metadata.get('id', 'Unknown')} (Similaridad: {1-score:.4f})")
-        print(f"    {doc.page_content[:150]}...")
-
-    # Obtener información del modelo seleccionado
-    model_info = AVAILABLE_MODELS[model_size]
-    model_name = model_info["name"]
-    
-    # Obtener el límite de tokens según si es local o API
-    if use_local:
-        token_limit = model_info["max_tokens"]
-    else:
-        token_limit = max_tokens
-    
-    print(f"\nUsando modelo: {model_name}")
-    if use_local:
-        print(f"Límite de tokens del modelo local: {token_limit}")
-    else:
-        print(f"Límite de tokens configurado para API: {token_limit}")
-    
-    # Inicializar el modelo y tokenizer antes para poder verificar el tamaño
-    print("Cargando modelo de lenguaje...")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name) if use_local else None
-    
-    # Asegurarnos de que el contexto no es demasiado largo
-    context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
-    question_tokens = len(tokenizer.encode(query_text))
-    context_tokens = len(tokenizer.encode(context_text))
-    template_tokens = len(tokenizer.encode(PROMPT_TEMPLATE.replace("{context}", "").replace("{question}", "")))
-    total_tokens = context_tokens + question_tokens + template_tokens
-    
-    print(f"\nEstimación de tokens: {total_tokens} (máximo permitido: {token_limit})")
-    print(f"- Contexto: {context_tokens} tokens")
-    print(f"- Pregunta: {question_tokens} tokens")
-    print(f"- Plantilla: {template_tokens} tokens")
-    
-    if total_tokens > token_limit * 0.97:
-        print("\n⚠️ El contexto es demasiado grande, truncando...")
-        # Estrategia simple: usar menos documentos
-        max_docs = max(1, num_docs - 1)
-        context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results[:max_docs]])
-        context_tokens = len(tokenizer.encode(context_text))
-        total_tokens = context_tokens + question_tokens + template_tokens
-        print(f"Nuevos tokens totales después de truncar: {total_tokens}")
+    try:
+        # Obtener la colección
+        collection = chroma_client.get_collection(name="my_collection")
         
-        # Si aún es demasiado grande, truncamos aún más
-        if total_tokens > token_limit * 0.97 and max_docs > 1:
-            max_docs = 1
+        # Inicializar Chroma de LangChain con el cliente HTTP
+        db = Chroma(
+            client=chroma_client,
+            collection_name="my_collection",
+            embedding_function=embedding_function
+        )
+
+        # Search the DB.
+        print("Buscando documentos similares...")
+        # Usar el número de documentos especificado
+        results = db.similarity_search_with_score(query_text, k=num_docs)
+        
+        print(f"\nSe encontraron {len(results)} documentos relevantes:")
+        for i, (doc, score) in enumerate(results):
+            print(f"\n[{i+1}] Documento: {doc.metadata.get('id', 'Unknown')} (Similaridad: {1-score:.4f})")
+            print(f"    {doc.page_content[:150]}...")
+
+        # Obtener información del modelo seleccionado
+        model_info = AVAILABLE_MODELS[model_size]
+        model_name = model_info["name"]
+        max_tokens = model_info["max_tokens"]
+        
+        print(f"\nUsando modelo: {model_name} (máx. {max_tokens} tokens)")
+        
+        # Inicializar el modelo y tokenizer antes para poder verificar el tamaño
+        print("Cargando modelo de lenguaje...")
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        
+        # Asegurarnos de que el contexto no es demasiado largo
+        context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
+        question_tokens = len(tokenizer.encode(query_text))
+        context_tokens = len(tokenizer.encode(context_text))
+        template_tokens = len(tokenizer.encode(PROMPT_TEMPLATE.replace("{context}", "").replace("{question}", "")))
+        total_tokens = context_tokens + question_tokens + template_tokens
+        
+        print(f"\nEstimación de tokens: {total_tokens} (máximo permitido: {max_tokens})")
+        print(f"- Contexto: {context_tokens} tokens")
+        print(f"- Pregunta: {question_tokens} tokens")
+        print(f"- Plantilla: {template_tokens} tokens")
+        
+        # Dejamos un margen de seguridad del 3%
+        if total_tokens > max_tokens * 0.97:
+            print("\n⚠️ El contexto es demasiado grande, truncando...")
+            # Estrategia simple: usar menos documentos
+            max_docs = max(1, num_docs - 1)
             context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results[:max_docs]])
             context_tokens = len(tokenizer.encode(context_text))
             total_tokens = context_tokens + question_tokens + template_tokens
-            print(f"Nuevos tokens totales después de truncar más: {total_tokens}")
-    
-    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    prompt = prompt_template.format(context=context_text, question=query_text)
-    print("\n" + "="*50 + " PROMPT " + "="*50)
-    print(prompt)
-    print("="*109 + "\n")
-    
-    if use_local:
-        print("\nUsando modelo local FLAN-T5...")
-        response_text = generate_local_response(prompt, model, tokenizer)
-    else:
-        print("\nGenerando respuesta desde API externa...")
-        response_text = call_external_api(prompt, token_limit)
-    
-    sources = [doc.metadata.get('id', 'Unknown') for doc, _score in results]
-    formatted_response = f"\nRespuesta: {response_text['response']}\n\nFuentes consultadas: {sources}\nTokens de entrada: {response_text['inputTokens']}\nTokens de salida: {response_text['outputTokens']}\nCosto: {response_text['cost']}"
-    print(formatted_response)
-    return response_text['response']
+            print(f"Nuevos tokens totales después de truncar: {total_tokens}")
+            
+            # Si aún es demasiado grande, truncamos aún más
+            if total_tokens > max_tokens * 0.97 and max_docs > 1:
+                max_docs = 1
+                context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results[:max_docs]])
+                context_tokens = len(tokenizer.encode(context_text))
+                total_tokens = context_tokens + question_tokens + template_tokens
+                print(f"Nuevos tokens totales después de truncar más: {total_tokens}")
+        
+        prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
+        prompt = prompt_template.format(context=context_text, question=query_text)
+        print("\n" + "="*50 + " PROMPT " + "="*50)
+        print(prompt)
+        print("="*109 + "\n")
+        
+        # Hacer la llamada a la API externa en lugar de usar el modelo local
+        print("Generando respuesta desde API externa...")
+        response_text = call_external_api(prompt)
+        
+        sources = [doc.metadata.get('id', 'Unknown') for doc, _score in results]
+        formatted_response = f"\nRespuesta: {response_text['response']}\n\nFuentes consultadas: {sources}\nTokens de entrada: {response_text['inputTokens']}\nTokens de salida: {response_text['outputTokens']}\nCosto: {response_text['cost']}"
+        print(formatted_response)
+        return response_text['response']
 
-def call_external_api(prompt, max_tokens):
+    except Exception as e:
+        print(f"Error al acceder a la colección: {str(e)}")
+        return None
+
+def call_external_api(prompt):
     # Definir la URL de la API
     url = "https://labs-ai-proxy.acloud.guru/rest/openai/chatgpt-35/v1/chat/completions"
     
@@ -185,7 +195,6 @@ def call_external_api(prompt, max_tokens):
     # Preparar el payload
     payload = {
         "prompt": prompt,
-        "max_tokens": max_tokens
     }
     
     # Hacer la solicitud POST

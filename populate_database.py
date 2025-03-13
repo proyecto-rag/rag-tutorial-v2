@@ -6,6 +6,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema.document import Document
 from get_embedding_function import get_embedding_function
 from langchain_chroma import Chroma
+import chromadb
+from chromadb.config import Settings
 
 
 CHROMA_PATH = "chroma"
@@ -44,10 +46,23 @@ def split_documents(documents: list[Document]):
 
 
 def add_to_chroma(chunks: list[Document]):
-    # Load the existing database.
+    # Crear cliente de ChromaDB para conectarse al contenedor
+    chroma_client = chromadb.HttpClient(
+        host="localhost",
+        port=8000
+        # Removemos la configuración de autenticación ya que no es necesaria
+        # para la conexión básica al contenedor
+    )
+    
+    # Crear o obtener una colección
+    collection = chroma_client.get_or_create_collection(name="my_collection")
+    
+    # Inicializar Chroma de LangChain con el cliente HTTP
     # AQUI SE CAMBIA EL MODELO
     db = Chroma(
-        persist_directory=CHROMA_PATH, embedding_function=get_embedding_function()
+        client=chroma_client,
+        collection_name="my_collection",
+        embedding_function=get_embedding_function()
     )
 
     # Calculate Page IDs.
