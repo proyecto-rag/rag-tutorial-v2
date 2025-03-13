@@ -29,7 +29,7 @@ MODEL_CONFIG = {
 }
 
 
-def get_embedding_function(model_name="multilingual"):
+def get_embedding_function(model_name="minil12"):
     try:
         # Obtener configuración del modelo
         config = MODEL_CONFIG.get(model_name)

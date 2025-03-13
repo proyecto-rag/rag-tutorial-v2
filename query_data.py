@@ -47,7 +47,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("query_text", type=str, help="The query text.")
     parser.add_argument("--model", type=str, choices=["small", "base", "large", "xl", "xxl"], 
-                        default="xl", help="Modelo a utilizar (small, base, large, xl, xxl).")
+                        default="large", help="Modelo a utilizar (small, base, large, xl, xxl).")
     parser.add_argument("--max-tokens", type=int, default=2048,
                         help="Número máximo de tokens a utilizar (solo aplica cuando se usa la API externa).")
     parser.add_argument("--docs", type=int, default=3, 
@@ -121,14 +121,23 @@ def query_rag(query_text: str, model_size: str = "large", num_docs: int = 2,
         # Obtener información del modelo seleccionado
         model_info = AVAILABLE_MODELS[model_size]
         model_name = model_info["name"]
-        max_tokens = model_info["max_tokens"]
+        # Obtener el límite de tokens según si es local o API
+        if use_local:
+            token_limit = model_info["max_tokens"]
+        else:
+            token_limit = max_tokens
+        print(f"\nUsando modelo: {model_name}")
         
-        print(f"\nUsando modelo: {model_name} (máx. {max_tokens} tokens)")
+        if use_local:
+            print(f"Límite de tokens del modelo local: {token_limit}")
+        else:
+            print(f"Límite de tokens configurado para API: {token_limit}")
         
         # Inicializar el modelo y tokenizer antes para poder verificar el tamaño
         print("Cargando modelo de lenguaje...")
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        print(f"USE-LOCAL: {use_local}")
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name) if use_local else None
         
         # Asegurarnos de que el contexto no es demasiado largo
         context_text = "\n\n---\n\n".join([doc.page_content for doc, _score in results])
@@ -166,9 +175,12 @@ def query_rag(query_text: str, model_size: str = "large", num_docs: int = 2,
         print(prompt)
         print("="*109 + "\n")
         
-        # Hacer la llamada a la API externa en lugar de usar el modelo local
-        print("Generando respuesta desde API externa...")
-        response_text = call_external_api(prompt)
+        if use_local:
+            print("\nUsando modelo local FLAN-T5...")
+            response_text = generate_local_response(prompt, model, tokenizer)
+        else:
+            print("\nGenerando respuesta desde API externa...")
+            response_text = call_external_api(prompt, token_limit)
         
         sources = [doc.metadata.get('id', 'Unknown') for doc, _score in results]
         formatted_response = f"\nRespuesta: {response_text['response']}\n\nFuentes consultadas: {sources}\nTokens de entrada: {response_text['inputTokens']}\nTokens de salida: {response_text['outputTokens']}\nCosto: {response_text['cost']}"
