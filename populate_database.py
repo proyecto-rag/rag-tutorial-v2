@@ -6,6 +6,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.schema.document import Document
 from get_embedding_function import get_embedding_function
 from langchain_chroma import Chroma
+import chromadb
+from chromadb.config import Settings
 
 
 CHROMA_PATH = "chroma"
@@ -13,10 +15,11 @@ DATA_PATH = "data"
 
 
 def main():
-
     # Check if the database should be cleared (using the --clear flag).
     parser = argparse.ArgumentParser()
     parser.add_argument("--reset", action="store_true", help="Reset the database.")
+    parser.add_argument("--use-local-db", action="store_true",
+                        help="Usa la base de datos del proyecto, no la de docker.")
     args = parser.parse_args()
     if args.reset:
         print("✨ Clearing Database")
@@ -25,7 +28,7 @@ def main():
     # Create (or update) the data store.
     documents = load_documents()
     chunks = split_documents(documents)
-    add_to_chroma(chunks)
+    add_to_chroma(chunks, args.use_local_db)
 
 
 def load_documents():
@@ -43,11 +46,27 @@ def split_documents(documents: list[Document]):
     return text_splitter.split_documents(documents)
 
 
-def add_to_chroma(chunks: list[Document]):
-    # Load the existing database.
+def add_to_chroma(chunks: list[Document], use_local_db: bool = False):
+    # Crear cliente de ChromaDB según el parámetro use_local_db
+    if use_local_db:
+        chroma_client = chromadb.PersistentClient(
+            path=CHROMA_PATH
+        )
+    else:
+        chroma_client = chromadb.HttpClient(
+            host="localhost",
+            port=8000
+        )
+    
+    # Crear o obtener una colección
+    collection = chroma_client.get_or_create_collection(name="my_collection")
+    
+    # Inicializar Chroma de LangChain con el cliente HTTP
     # AQUI SE CAMBIA EL MODELO
     db = Chroma(
-        persist_directory=CHROMA_PATH, embedding_function=get_embedding_function()
+        client=chroma_client,
+        collection_name="my_collection",
+        embedding_function=get_embedding_function()
     )
 
     # Calculate Page IDs.
