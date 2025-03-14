@@ -15,10 +15,11 @@ DATA_PATH = "data"
 
 
 def main():
-
     # Check if the database should be cleared (using the --clear flag).
     parser = argparse.ArgumentParser()
     parser.add_argument("--reset", action="store_true", help="Reset the database.")
+    parser.add_argument("--use-local-db", action="store_true",
+                        help="Usa la base de datos del proyecto, no la de docker.")
     args = parser.parse_args()
     if args.reset:
         print("✨ Clearing Database")
@@ -27,7 +28,7 @@ def main():
     # Create (or update) the data store.
     documents = load_documents()
     chunks = split_documents(documents)
-    add_to_chroma(chunks)
+    add_to_chroma(chunks, args.use_local_db)
 
 
 def load_documents():
@@ -45,14 +46,17 @@ def split_documents(documents: list[Document]):
     return text_splitter.split_documents(documents)
 
 
-def add_to_chroma(chunks: list[Document]):
-    # Crear cliente de ChromaDB para conectarse al contenedor
-    chroma_client = chromadb.HttpClient(
-        host="localhost",
-        port=8000
-        # Removemos la configuración de autenticación ya que no es necesaria
-        # para la conexión básica al contenedor
-    )
+def add_to_chroma(chunks: list[Document], use_local_db: bool = False):
+    # Crear cliente de ChromaDB según el parámetro use_local_db
+    if use_local_db:
+        chroma_client = chromadb.PersistentClient(
+            path=CHROMA_PATH
+        )
+    else:
+        chroma_client = chromadb.HttpClient(
+            host="localhost",
+            port=8000
+        )
     
     # Crear o obtener una colección
     collection = chroma_client.get_or_create_collection(name="my_collection")
