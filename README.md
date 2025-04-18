@@ -96,3 +96,53 @@ python query_data.py "Tu pregunta" \
   - minil12: para casos generales y recursos limitados
   - multilingual: para documentos multilingües
   - instruction: para casos que requieren instrucciones específicas
+
+# FLASK API CONFIGURATION
+## Inside env
+To run your web application, you’ll first tell Flask where to find the application (api.py) with the FLASK_APP environment variable:
+
+```bash
+export FLASK_APP=api
+```
+
+Then run it in development mode with the FLASK_ENV environment variable:
+```bash
+export FLASK_ENV=development
+```
+
+Run api
+```bash
+flask run
+```
+
+# BOT DE TELEGRAM: `telegram-bot.py`
+
+Este archivo implementa un bot de Telegram que permite probar el sistema RAG desde un chat de Telegram. Cuando envías una pregunta al bot, este genera el prompt real que se enviaría al modelo, usando el contexto recuperado de la base de datos local (simula la opción `--use-local-db`). El bot **no ejecuta el modelo ni llama a la API**, solo muestra el prompt construido.
+
+## ¿Cómo funciona?
+- Usa la función de recuperación de contexto del sistema (`Chroma`, embeddings, etc.) para buscar los documentos más relevantes según tu pregunta.
+- Construye el prompt con el contexto real y la pregunta, igual que lo haría el sistema antes de llamar a un modelo LLM.
+- Te responde en Telegram con el prompt generado (puedes copiarlo y usarlo para pruebas o inspección).
+
+## Requisitos
+- Tener la base de datos local (`chroma/`) ya poblada con tus documentos.
+- Tener instaladas las dependencias del proyecto, incluyendo `python-telegram-bot`, `transformers`, `chromadb`, `langchain`, etc.
+- Un token de bot de Telegram válido (puedes obtenerlo de @BotFather).
+
+## Configuración
+1. Edita la variable `TELEGRAM_TOKEN` en `telegram-bot.py` y pon ahí tu token de bot.
+2. Asegúrate de que la base de datos local está creada y contiene tus documentos.
+
+## Uso
+
+```bash
+python telegram-bot.py
+```
+
+- Inicia el bot y abre un chat con él en Telegram.
+- Escribe cualquier pregunta; el bot responderá con el prompt real generado a partir de tus documentos.
+
+## Notas
+- El bot **no responde con la respuesta del modelo**, solo con el prompt y contexto que se enviarían.
+- Útil para depuración, pruebas de contexto y verificación de recuperación de documentos.
+- Si quieres cambiar el número de documentos de contexto, edita el parámetro `num_docs` en la función `handle_message`.
